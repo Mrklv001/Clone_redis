@@ -16,6 +16,9 @@ async def recv_argv(reader: asyncio.StreamReader) -> Optional[list[str]]:
         return None
 
 
+database: dict[str, str] = {}
+
+
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     while True:
         argv = await recv_argv(reader)
@@ -26,8 +29,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         match command_name := argv[0].upper():
             case "ECHO":
                 response = RespBulkString(argv[1])
+            case "GET":
+                response = RespBulkString(database[argv[1]])
             case "PING":
                 response = RespSimpleString("PONG")
+            case "SET":
+                database[argv[1]] = argv[2]
+                response = RespSimpleString("OK")
             case _:
                 raise ValueError(f"Unknown command: {command_name}")
 
