@@ -1,6 +1,7 @@
 import asyncio
 from typing import Optional
 
+from .database import RedisDatabase
 from .resp2 import RespBulkString, RespSimpleString
 
 
@@ -16,7 +17,7 @@ async def recv_argv(reader: asyncio.StreamReader) -> Optional[list[str]]:
         return None
 
 
-database: dict[str, str] = {}
+database = RedisDatabase()
 
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -30,11 +31,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             case "ECHO":
                 response = RespBulkString(argv[1])
             case "GET":
-                response = RespBulkString(database[argv[1]])
+                response = RespBulkString(database.get(argv[1]))
             case "PING":
                 response = RespSimpleString("PONG")
             case "SET":
-                database[argv[1]] = argv[2]
+                if len(argv) == 3:
+                    database.set(argv[1], argv[2])
+                else:
+                    database.set(argv[1], argv[2], expire_time=float(argv[-1]))
                 response = RespSimpleString("OK")
             case _:
                 raise ValueError(f"Unknown command: {command_name}")
