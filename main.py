@@ -1,60 +1,34 @@
+import argparse
 import asyncio
-from typing import Optional
 
-from .database import RedisDatabase
-from .resp2 import RespBulkString, RespSimpleString
+from redis import RedisServer
 
 
-async def recv_argv(reader: asyncio.StreamReader) -> Optional[list[str]]:
-    try:
-        argc = int((await reader.readuntil(b"\r\n"))[1:-2].decode())
-        argv = []
-        for _ in range(argc):
-            argsize = int((await reader.readuntil(b"\r\n"))[1:-2].decode())
-            argv.append((await reader.read(argsize+2))[:-2].decode())
-        return argv
-    except asyncio.IncompleteReadError:
-        return None
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--port", type=int, default=6379)
+    parser.add_argument("--replicaof", type=str, default=None)
+
+    parser.add_argument("--dir", type=str, default=None)
+    parser.add_argument("--dbfilename", type=str, default=None)
+
+    return parser.parse_args()
 
 
-database = RedisDatabase()
+def main() -> None:
+    args = parse_args()
 
+    address = "localhost", args.port
+    if args.replicaof is not None:
+        master_host, master_port = args.replicaof.split()
+        master_address = master_host, int(master_port)
+        server = RedisServer(address, master_address)
+    else:
+        server = RedisServer(address, dir=args.dir, dbfilename=args.dbfilename)
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    while True:
-        argv = await recv_argv(reader)
-        if argv is None:
-            break
-        print(argv)
-
-        match command_name := argv[0].upper():
-            case "ECHO":
-                response = RespBulkString(argv[1])
-            case "GET":
-                response = RespBulkString(database.get(argv[1]))
-            case "PING":
-                response = RespSimpleString("PONG")
-            case "SET":
-                if len(argv) == 3:
-                    database.set(argv[1], argv[2])
-                else:
-                    database.set(argv[1], argv[2], expire_time=float(argv[-1]))
-                response = RespSimpleString("OK")
-            case _:
-                raise ValueError(f"Unknown command: {command_name}")
-
-        writer.write(response.serialize())
-        await writer.drain()
-
-    writer.close()
-    await writer.wait_closed()
-
-
-async def main() -> None:
-    server = await asyncio.start_server(handle_client, "localhost", 6379, reuse_port=True)
-    async with server:
-        await server.serve_forever()
+    asyncio.run(server.start())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
